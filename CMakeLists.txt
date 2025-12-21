@@ -4,28 +4,39 @@ project(player LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
-qt_standard_project_setup()
+# 🔹 Option for CLI-only build
+option(CLI_ONLY "Build CLI only version" OFF)
 
-add_executable(player
+# 🔹 Always include core and CLI sources
+set(player_sources
     main.cpp
     cli/cli_app.cpp
-    gui/gui_app.cpp
     core/PlaylistImpl.cpp
-    gui/MainWindow.h gui/MainWindow.cpp
-    core/Mp3Reader.h core/Mp3Reader.cpp
-    gui/TrackIndicator.h gui/TrackIndicator.cpp
+    core/Mp3Reader.cpp
 )
 
-# 🔹 Tell compiler where headers live
-target_include_directories(player
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/core
-)
+# 🔹 Include GUI sources only if not CLI_ONLY
+if(NOT CLI_ONLY)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
+    qt_standard_project_setup()
 
-# 🔹 Link Qt
-target_link_libraries(player
-    PRIVATE
-        Qt6::Widgets
-        Qt6::Multimedia
-)
+    list(APPEND player_sources
+        gui/gui_app.cpp
+        gui/MainWindow.cpp
+        gui/TrackIndicator.cpp
+    )
+endif()
+
+# 🔹 Create the executable
+add_executable(player ${player_sources})
+
+# 🔹 Include core headers
+target_include_directories(player PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/core)
+
+# 🔹 Link Qt only if GUI build
+if(NOT CLI_ONLY)
+    target_link_libraries(player PRIVATE Qt6::Widgets Qt6::Multimedia)
+else()
+    # Define CLI_ONLY macro for main.cpp stub
+    target_compile_definitions(player PRIVATE CLI_ONLY)
+endif()
