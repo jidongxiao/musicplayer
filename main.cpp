@@ -14,9 +14,9 @@ int run_gui(int argc, char* argv[]);
 
 int main(int argc, char* argv[])
 {
+    // Default to GUI if no argument is given
     if (argc < 2) {
-        std::cerr << "Usage: player --cli | --gui\n";
-        return 1;
+	return run_gui(argc, argv);
     }
 
     std::string mode = argv[1];
