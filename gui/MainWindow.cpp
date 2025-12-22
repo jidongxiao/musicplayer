@@ -9,13 +9,22 @@
 #include <QUrl>
 #include <QHeaderView>
 #include <QEventLoop>
+#include <QResource>
+#include <QDirIterator>
+#include <random>
 
 MainWindow::MainWindow(QWidget* parent)
     : QWidget(parent)
 {
     audio.setVolume(0.5);
     player.setAudioOutput(&audio);
-
+    // Debug: Walk the entire resource tree
+    QDirIterator it(":", QDirIterator::Subdirectories);
+    qDebug() << "--- ALL REGISTERED RESOURCES ---";
+    while (it.hasNext()) {
+        qDebug() << it.next();
+    }
+    qDebug() << "-------------------------------";
     setupUi();
     connectSignals();
 }
@@ -51,19 +60,43 @@ void MainWindow::setupUi()
     playlistView->setColumnWidth(4, 70);
 
     openBtn  = new QPushButton("Open", this);
-    playBtn  = new QPushButton("Play", this);
-    pauseBtn = new QPushButton("Pause", this);
-    nextBtn  = new QPushButton("Next", this);
-    prevBtn  = new QPushButton("Prev", this);
     removeBtn = new QPushButton("Remove", this);
+
+    shuffleBtn   = new QPushButton(this);
+    prevBtn      = new QPushButton(this);
+    playPauseBtn = new QPushButton(this);
+    nextBtn      = new QPushButton(this);
+    repeatBtn    = new QPushButton(this);
+
+    shuffleBtn->setIcon(QIcon(":/icons/shuffle.svg"));
+    prevBtn->setIcon(QIcon(":/icons/previous.svg"));
+    playPauseBtn->setIcon(QIcon(":/icons/play.svg"));
+    nextBtn->setIcon(QIcon(":/icons/next.svg"));
+    repeatBtn->setIcon(QIcon(":/icons/repeat.svg"));
+
+    shuffleBtn->setToolTip("Enable Shuffle");
+    prevBtn->setToolTip("Previous");
+    playPauseBtn->setToolTip("Play");
+    nextBtn->setToolTip("Next");
+    repeatBtn->setToolTip("Enable Repeat");
+    repeatBtn->setCheckable(true);
+
+    shuffleBtn->setCheckable(true);
+    shuffleBtn->setStyleSheet(R"(
+        QPushButton:checked {
+            color: #1DB954;
+        }
+    )");
+
+    for (auto* btn : {shuffleBtn, prevBtn, playPauseBtn, nextBtn, repeatBtn}) {
+        btn->setFlat(true);        // Spotify-like
+        btn->setIconSize(QSize(24, 24));
+        btn->setCursor(Qt::PointingHandCursor);
+    }
 
     // Right-side controls
     QVBoxLayout* controls = new QVBoxLayout;
     controls->addWidget(openBtn);
-    controls->addWidget(playBtn);
-    controls->addWidget(pauseBtn);
-    controls->addWidget(prevBtn);
-    controls->addWidget(nextBtn);
     controls->addWidget(removeBtn);
     controls->addStretch();
 
@@ -71,6 +104,40 @@ void MainWindow::setupUi()
     QHBoxLayout* mainLayout = new QHBoxLayout;
     mainLayout->addWidget(playlistView, 3);  // left panel
     mainLayout->addLayout(controls, 1);       // right panel
+
+    QHBoxLayout* transportBar = new QHBoxLayout;
+    transportBar->addStretch();
+    transportBar->addWidget(shuffleBtn);
+    transportBar->addWidget(prevBtn);
+    transportBar->addWidget(playPauseBtn);
+    transportBar->addWidget(nextBtn);
+    transportBar->addWidget(repeatBtn);
+    transportBar->addStretch();
+
+    QString transportStyle = R"(
+        QPushButton {
+            border: none;
+            background: transparent;
+            padding: 6px;
+            border-radius: 16px;
+        }
+
+        QPushButton:hover {
+            background-color: rgba(255, 255, 255, 30);
+        }
+
+        QPushButton:pressed {
+            background-color: rgba(255, 255, 255, 60);
+        }
+
+        QPushButton:checked {
+            background-color: rgba(29, 185, 84, 40);
+        }
+    )";
+
+    for (auto* btn : {shuffleBtn, prevBtn, playPauseBtn, nextBtn, repeatBtn}) {
+        btn->setStyleSheet(transportStyle);
+    }
 
     progressSlider = new QSlider(Qt::Horizontal, this);
     progressSlider->setRange(0, 0); // duration unknown initially
@@ -80,6 +147,7 @@ void MainWindow::setupUi()
     timeLabel->setAlignment(Qt::AlignCenter);
 
     QVBoxLayout* bottomBar = new QVBoxLayout;
+    bottomBar->addLayout(transportBar);
     bottomBar->addWidget(progressSlider);
     bottomBar->addWidget(timeLabel);
     QVBoxLayout* rootLayout = new QVBoxLayout;
@@ -94,11 +162,18 @@ void MainWindow::connectSignals()
     connect(openBtn, &QPushButton::clicked,
             this, &MainWindow::addTrackFromFile);
 
-    connect(playBtn, &QPushButton::clicked,
-            &player, &QMediaPlayer::play);
-
-    connect(pauseBtn, &QPushButton::clicked,
-            &player, &QMediaPlayer::pause);
+    connect(playPauseBtn, &QPushButton::clicked, this, [this]() {
+        if (isPlaying) {
+            player.pause();
+            playPauseBtn->setIcon(QIcon(":/icons/play.svg"));
+            playPauseBtn->setToolTip("Play");
+        } else {
+            player.play();
+            playPauseBtn->setIcon(QIcon(":/icons/pause.svg"));
+            playPauseBtn->setToolTip("Pause");
+        }
+        isPlaying = !isPlaying;
+    });
 
     connect(nextBtn, &QPushButton::clicked, [this]() {
         if (playlist.empty()) return;
@@ -112,11 +187,62 @@ void MainWindow::connectSignals()
 
     connect(removeBtn, &QPushButton::clicked, this, &MainWindow::removeSelectedTrack);
 
+    connect(shuffleBtn, &QPushButton::toggled, this, [this](bool on) {
+        // qDebug() << "Shuffle:" << (on ? "ON" : "OFF");
+        if (on) {
+            // Shuffle playlist with a random seed
+            std::random_device rd;
+            playlist.shuffle(rd());
+            shuffleBtn->setToolTip("Disable Shuffle");
+        } else {
+            // Disable shuffle
+            playlist.disableShuffle();
+            shuffleBtn->setToolTip("Enable Shuffle");
+        }
+    });
+
+    connect(repeatBtn, &QPushButton::clicked, this, [this]() {
+        auto mode = playlist.getRepeatMode();
+
+        switch (mode) {
+        case PlaylistImpl::RepeatMode::Off:
+            mode = PlaylistImpl::RepeatMode::All;
+            repeatBtn->setChecked(true);
+            repeatBtn->setIcon(QIcon(":/icons/repeat.svg"));   // normal repeat icon
+            repeatBtn->setToolTip("Enable Repeat One");
+            break;
+        case PlaylistImpl::RepeatMode::All:
+            mode = PlaylistImpl::RepeatMode::One;
+            repeatBtn->setChecked(true);
+            repeatBtn->setIcon(QIcon(":/icons/repeat-1.svg")); // repeat one icon
+            repeatBtn->setToolTip("Disable Repeat");
+            break;
+        case PlaylistImpl::RepeatMode::One:
+            mode = PlaylistImpl::RepeatMode::Off;
+            repeatBtn->setChecked(false);
+            repeatBtn->setIcon(QIcon(":/icons/repeat.svg"));   // normal icon but off
+            repeatBtn->setToolTip("Enable Repeat");
+            break;
+        }
+
+        playlist.setRepeatMode(mode);
+    });
+
     connect(playlistView, &QTableWidget::cellDoubleClicked,
             [this](int row, int /*column*/) {
                 if (row >= 0 && row < playlistView->rowCount())
                     playTrack(playlist.at(row));
             });
+
+    connect(&player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+        if (status == QMediaPlayer::EndOfMedia) {
+            // Track finished, play next track
+            if (!playlist.empty()) {
+                Track nextTrack = playlist.next();
+                playTrack(nextTrack);
+            }
+        }
+    });
 
     connect(&player, &QMediaPlayer::durationChanged,
             this, [this](qint64 duration) {
@@ -141,6 +267,7 @@ void MainWindow::connectSignals()
                     formatTime(position) + " / " + formatTime(dur)
                     );
             });
+
     connect(progressSlider, &QSlider::sliderMoved,
             this, [this](int value) {
                 player.setPosition(value);
@@ -149,61 +276,64 @@ void MainWindow::connectSignals()
 
 void MainWindow::addTrackFromFile()
 {
-    QString file = QFileDialog::getOpenFileName(
+    QStringList files = QFileDialog::getOpenFileNames(
         this,
-        "Open Audio File",
+        "Open Audio Files",
         "",
         "Audio Files (*.mp3 *.wav *.ogg)"
         );
 
-    if (file.isEmpty())
+    if (files.isEmpty())
         return;
 
-    Track t;
-    t.filename = file.toStdString();
+    for (const QString& file : files) {
+        Track t;
+        t.filename = file.toStdString();
 
-    // Get metadata from Mp3Reader
-    Mp3Metadata data = Mp3Reader::read(t.filename);
-    t.title  = data.title;
-    t.artist = data.artist;
-    t.album  = data.album;
+        // Get metadata
+        Mp3Metadata data = Mp3Reader::read(t.filename);
+        t.title  = data.title;
+        t.artist = data.artist;
+        t.album  = data.album;
 
-    // Use temporary QMediaPlayer to get actual duration
-    QMediaPlayer probePlayer;
-    QAudioOutput audioOutput;
-    probePlayer.setAudioOutput(&audioOutput);
-    probePlayer.setSource(QUrl::fromLocalFile(file));
+        // Use temporary QMediaPlayer to get duration
+        QMediaPlayer probePlayer;
+        QAudioOutput audioOutput;
+        probePlayer.setAudioOutput(&audioOutput);
+        probePlayer.setSource(QUrl::fromLocalFile(file));
 
-    // Process events to ensure duration is available
-    QEventLoop loop;
-    QObject::connect(&probePlayer, &QMediaPlayer::durationChanged,
-                     &loop, &QEventLoop::quit);
-    loop.exec();
+        QEventLoop loop;
+        QObject::connect(&probePlayer, &QMediaPlayer::durationChanged, &loop, &QEventLoop::quit);
+        loop.exec();
 
-    t.lengthSeconds = probePlayer.duration() / 1000; // convert ms -> sec
+        t.lengthSeconds = probePlayer.duration() / 1000;
 
-    playlist.add(t);
+        // Add to playlist
+        playlist.add(t);
 
-    // Add row to table
-    int row = playlistView->rowCount();
-    playlistView->insertRow(row);
-    auto* indexItem = new QTableWidgetItem(QString::number(row + 1));
-    indexItem->setTextAlignment(Qt::AlignCenter);
-    playlistView->setItem(row, 0, indexItem);
-    playlistView->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(t.title)));
-    playlistView->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(t.artist)));
-    playlistView->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(t.album)));
+        // Add row to table
+        int row = playlistView->rowCount();
+        playlistView->insertRow(row);
+        auto* indexItem = new QTableWidgetItem(QString::number(row + 1));
+        indexItem->setTextAlignment(Qt::AlignCenter);
+        playlistView->setItem(row, 0, indexItem);
+        playlistView->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(t.title)));
+        playlistView->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(t.artist)));
+        playlistView->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(t.album)));
 
-    int minutes = t.lengthSeconds / 60;
-    int seconds = t.lengthSeconds % 60;
-    QString lenStr = QString("%1:%2")
-                         .arg(minutes)
-                         .arg(seconds, 2, 10, QChar('0'));
-    auto* durationItem = new QTableWidgetItem(lenStr);
-    durationItem->setTextAlignment(Qt::AlignCenter);
-    playlistView->setItem(row, 4, durationItem);
+        int minutes = t.lengthSeconds / 60;
+        int seconds = t.lengthSeconds % 60;
+        QString lenStr = QString("%1:%2").arg(minutes).arg(seconds, 2, 10, QChar('0'));
+        auto* durationItem = new QTableWidgetItem(lenStr);
+        durationItem->setTextAlignment(Qt::AlignCenter);
+        playlistView->setItem(row, 4, durationItem);
+    }
 
-    playTrack(t);
+    // Start playing the first of the new selection
+    if (!files.isEmpty()) {
+        playTrack(playlist.at(currentIndex >= 0 ? currentIndex : 0));
+        playPauseBtn->setIcon(QIcon(":/icons/pause.svg"));
+    }
 }
 
 void MainWindow::playTrack(const Track& t)

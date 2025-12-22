@@ -22,6 +22,8 @@ private:
     // Core (student logic)
     PlaylistImpl playlist;
     int currentIndex = -1;
+    // Playback state
+    bool isPlaying = false;
 
     // Audio
     QMediaPlayer player;
@@ -31,11 +33,13 @@ private:
     QTableWidget* playlistView;
 
     QPushButton* openBtn;
-    QPushButton* playBtn;
-    QPushButton* pauseBtn;
-    QPushButton* nextBtn;
-    QPushButton* prevBtn;
     QPushButton* removeBtn;
+
+    QPushButton* shuffleBtn;
+    QPushButton* prevBtn;
+    QPushButton* playPauseBtn;
+    QPushButton* nextBtn;
+    QPushButton* repeatBtn;
 
     QSlider* progressSlider;
     QLabel*  timeLabel;

@@ -28,6 +28,12 @@ Run the GUI version:
 ./player --gui
 ```
 
+or
+
+```console
+./player          # launches GUI if no argument is provided
+```
+
 ## GUI Version (Windows with Qt Creator)
 
 - Open the project in Qt Creator.
