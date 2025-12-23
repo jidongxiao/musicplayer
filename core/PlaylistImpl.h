@@ -15,10 +15,14 @@ public:
     Track at(size_t index) const override;
     void removeAt(size_t index);
     void rebuildPlaybackOrder();
+
+    bool shuffled(){ return isShuffled; }
     void shuffle(unsigned int seed);
     void disableShuffle();
     void setRepeatMode(RepeatMode mode) { repeatMode = mode; }
     RepeatMode getRepeatMode() const { return repeatMode; }
+
+    size_t size() const { return tracks.size(); }
 
 private:
     std::vector<Track> tracks;
